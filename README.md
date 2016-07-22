@@ -1,7 +1,8 @@
 ## Australian Census 2016 Twitter Insights
 ### Sentiment Analysis, Topic Modelling and Geocoded Tweets
 
-### *<a href="rjshanahan.shinyapps.io/Census_Twitter_Shiny" target="_blank">Click here for the Interactive Census Tweet Explorer</a>* 
+### *<a href="http://rjshanahan.shinyapps.io/Census_Twitter_Shiny" target="_blank">Click here for the Interactive Census Tweet Explorer</a>* 
+### *[Click here for the Interactive Census Tweet Explorer](http://rjshanahan.shinyapps.io/Census_Twitter_Shiny){:target="_blank"}*
 
 What is the Census? According to the <a href="www.abs.gov.au/" target="_blank">Australian Bureau of Statistics</a>:  
 *The Census of Population and Housing (Census) is Australia’s largest statistical collection undertaken by the Australian Bureau of Statistics (ABS). For more than 100 years, the Census has provided a snapshot of Australia, showing how our nation has changed over time, allowing us to plan for the future.*
