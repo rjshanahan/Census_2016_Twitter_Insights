@@ -21,7 +21,7 @@ library(lda)
 #library('bhaskarvk/leaflet') 
 library(leaflet)
 
-#set theme for graphics
+#set theme for ggplot2 graphics
 theme = theme_set(theme_minimal())
 theme = theme_update(legend.position="top",
                      axis.text.x = element_text(angle = 45, hjust = 1, vjust =1.25))
@@ -33,7 +33,7 @@ icon.neutral <- makeAwesomeIcon(icon = 'minus-sign', markerColor = 'blue', iconC
 icon.negative <- makeAwesomeIcon(icon = 'remove-sign', markerColor = 'red', iconColor = 'white')
 
 icon.subjective <- makeAwesomeIcon(icon= 'exclamation-sign', markerColor = 'orange', iconColor = 'white')
-icon.objective <- makeAwesomeIcon(icon = 'info-sign', markerColor = 'blue', iconColor = 'white')
+icon.objective <- makeAwesomeIcon(icon = 'info-sign', markerColor = 'cadetblue', iconColor = 'white')
 
 
 
@@ -41,7 +41,7 @@ icon.objective <- makeAwesomeIcon(icon = 'info-sign', markerColor = 'blue', icon
 
 #connection object
 mongo <- mongo.create(host="YOUR_DB", 
-                      db="twitter01")
+                      db="YOUR_DB")
 
 
 ################# 2. DATA SOURCES #################
@@ -49,9 +49,9 @@ mongo <- mongo.create(host="YOUR_DB",
 ################# 2.1 OBJECT FOR TOPIC MODELLING ################# 
 #load in pre-processed text from MongoDB
 
-myText <- mongo.find.all(mongo, "twitter01.tweets_census",
+myText <- mongo.find.all(mongo, "YOUR_DB.YOUR_COLLECTION",
                          query='{"$and": [
-{"text_clean":{"$exists" :1},
+                        {"text_clean":{"$exists" :1},
                          "text_clean":{"$ne" :1},
                          "text_clean":{"$ne" :"null"}} 
                          ]}' ,
@@ -65,18 +65,21 @@ myText$text_clean <- gsub("^rt ", "", myText$text_clean)
 myText$text_clean <- gsub(" amp ", "", myText$text_clean)
 myText$text_clean <- gsub("https", "", myText$text_clean)
 myText$text_clean <- gsub("  rt", "", myText$text_clean)
+#myText$text_clean <- gsub("...", "", myText$text_clean)
 
 #remove rows with empty strings
 myText <- myText %>% filter(nchar(text_clean) > 4)
+myText <- myText %>% filter(!text_clean == "                    ")
+
 
 #change date format of CREATED_AT Twitter field
 myText$created_at <- as.POSIXct(myText$created_at, format = "%a %b %d %H:%M:%S +0000 %Y")
+#myText$created_at <- as.Date(myText$created_at)
 
-
-################# 2.1 OBJECT FOR SENTIMENT TIMESERIES ################# 
+################# 2.2 OBJECT FOR SENTIMENT TIMESERIES ################# 
 
 #load in pre-processed text from MongoDB
-mySentiment <- mongo.find.all(mongo, "twitter01.tweets_census",
+mySentiment <- mongo.find.all(mongo, "YOUR_DB.YOUR_COLLECTION",
                               query='{
                               "text_sentiment":{"$exists" :1},
                               "favorites":{"$exists" :1},
@@ -105,10 +108,10 @@ mySentiment$day <- as.Date(mySentiment$created_at)
 
 
 
-################# 2.2 OBJECT FOR SENTIMENT GEOCODED ################# 
+################# 2.3 OBJECT FOR SENTIMENT GEOCODED ################# 
 
 #load in pre-processed text from MongoDB
-myGeo <- mongo.find.all(mongo, "twitter01.tweets_census",
+myGeo <- mongo.find.all(mongo, "YOUR_DB.YOUR_COLLECTION",
                         query='{
                         "lat_lon_loc": {"$exists" :1},
                         "lat_lon_loc": {"$ne":"null"},
@@ -133,12 +136,12 @@ myGeo.clean$lat_lon_loc.longitude <- as.numeric(myGeo.clean$lat_lon_loc.longitud
 myGeo.clean$lat_lon_loc.latitude <- as.numeric(myGeo.clean$lat_lon_loc.latitude)
 
 
-################# 2. TOPIC MODEL #################
+################# 3. SHINY SERVER FUNCTION #################
 
 
-server <- function(input,output,session) {
-  
-  
+server <- function(input,output,sessions) {
+
+  #tm reactive function - Term:Document Matrix
   myTDM <- reactive({
     
     # build a corpus, and specify the source to be character vectors
@@ -157,6 +160,7 @@ server <- function(input,output,session) {
   })
   
   
+  #tm reactive function - Latent Dirichlet Allocation object
   myLDA <- reactive({
     
     tdm <- myTDM()
@@ -172,6 +176,7 @@ server <- function(input,output,session) {
   })
   
   
+  #tm reactive function - tops n terms
   myTerm <- reactive({
     
     tdm <- myTDM()
@@ -184,6 +189,7 @@ server <- function(input,output,session) {
   })
   
   
+  #tm reactive function - tops n terms for visualisation
   myTerm_vis <- reactive({
     
     term <- myTerm()
@@ -194,6 +200,7 @@ server <- function(input,output,session) {
   })
   
   
+  #tm reactive function - LDA topics object
   myTopic <- reactive({
     
     lda <- myLDA()
@@ -206,8 +213,6 @@ server <- function(input,output,session) {
   })
   
   
-  ################# 3. VARIOUS VISUALISATIONS #################
-  
   # reactive object for sentiment time series
   mySentiment_day <- reactive({
     mySentiment %>%
@@ -215,12 +220,20 @@ server <- function(input,output,session) {
       summarise_(total = paste0('n()')) 
   })
   
-  # reactive object for sentiment time series
-  mySentiment_day_ts <- reactive({
+  # reactive object for sentiment time series bar
+  mySentiment_day_ts1 <- reactive({
     mySentiment %>%
       group_by_(quote(day), input$myFill2) %>%
       summarise_(total = paste0('n()')) 
   })
+  
+  # reactive object for sentiment time series line
+  mySentiment_day_ts2 <- reactive({
+    mySentiment %>%
+      group_by_(quote(day), input$myFill3) %>%
+      summarise_(total = paste0('n()')) 
+  })
+  
   
   
   
@@ -228,9 +241,9 @@ server <- function(input,output,session) {
   mySentiment_pop <- reactive({
     mySentiment %>%
       filter(!is.na(user) & user != "") %>%
-      group_by_(quote(user), input$myPop, input$myFill2) %>%
+      group_by_(quote(user), input$myPop, input$myFill4) %>%
       mutate(tweets = n()) %>%
-      group_by_(quote(user), input$myPop, input$myFill2, quote(tweets)) %>%
+      group_by_(quote(user), input$myPop, input$myFill4, quote(tweets)) %>%
       summarise_(paste0('sum(',input$myPop,')') ) %>%
       ungroup() %>%
       arrange_(paste0('desc(', quote(tweets),')'))
@@ -273,11 +286,11 @@ server <- function(input,output,session) {
   output$word_cloud2 <- renderPlot({
     
     tdm <- myTDM()
-    
+
     m <- as.matrix(tdm)
     # calculate the frequency of words and sort it by frequency
     word.freq <- sort(rowSums(m), decreasing = T)
-    
+
     pal <- brewer.pal(9,"BuGn")
     pal <- pal[-(1:4)]
     
@@ -300,7 +313,7 @@ server <- function(input,output,session) {
     
     topics <- data.frame(date=as.IDate(myText$created_at), topic)
     
-    title_main <- paste0("Showing top ",input$topic_topN2, " words for ", input$n_topics2, " topics")
+    title_main <- paste0("Showing top ",input$topic_topN2, " words for ", input$n_topics2, " topics from ", nrow(myText), " tweets")
     title_sub <- paste0("Topic Modelling using Latent Dirichlet Allocation")
     
     p <- ggplot(topics,
@@ -364,7 +377,7 @@ server <- function(input,output,session) {
   # time series plot - general tab
   output$time_series3 <- renderPlotly({
     
-    mySent_day <- mySentiment_day_ts()
+    mySent_day <- mySentiment_day_ts1()
     
     #timeseries
     p <- ggplot(data = mySent_day, 
@@ -387,15 +400,15 @@ server <- function(input,output,session) {
   # time series plot - general tab
   output$time_series_line <- renderPlotly({
     
-    mySent_day <- mySentiment_day_ts()
+    mySent_day <- mySentiment_day_ts2()
     
     #timeseries
     p <- ggplot(data = mySent_day, 
                 #ordered x axis by popularity count.
                 aes_string(x=quote(day))) + 
       geom_line(aes_string(y=quote(total),
-                           colour=input$myFill2)) +
-      ggtitle(paste0("Time series for Census 2016 Tweets by ", input$myFill2))
+                           colour=input$myFill3)) +
+      ggtitle(paste0("Time series for Census 2016 Tweets by ", input$myFill3))
     
     p <- ggplotly(p,
                   tooltip = c("x", "colour"))
@@ -415,9 +428,10 @@ server <- function(input,output,session) {
                 #ordered x axis by popularity count.
                 aes_string(x=paste0('reorder(user, desc(tweets))'),
                            y=quote(tweets))) + 
-      geom_bar(aes_string(fill=input$myFill2),
+      geom_bar(aes_string(fill=input$myFill4),
                stat='identity') +
-      ggtitle(paste0("Top ", input$myHigh, " users by ", input$myPop, " and ", input$myFill2)) +
+      theme_update(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1.25, size = 8)) +
+      ggtitle(paste0("Top ", input$myHigh, " users by ", input$myPop, " and ", input$myFill4)) +
       xlab("user name")
     
     p <- ggplotly(p,
@@ -428,10 +442,22 @@ server <- function(input,output,session) {
   })
   
   
-  ################# 4. GEOCODED TWEET MAP #################
-  
   # Create the map
   output$myMap <- renderLeaflet({
+    
+    sentiment_type <- input$textual_type
+    
+    #underlying map object - load once
+    theMap <- leaflet() %>%
+      addTiles(
+        urlTemplate = "//{s}.tiles.mapbox.com/v3/jcheng.map-5ebohr46/{z}/{x}/{y}.png",
+        attribution = 'Maps by <a href="http://www.mapbox.com/">Mapbox</a>'
+      ) %>%
+      setView(lng = 150.0000, lat = -24.1500, zoom = 4)
+    
+    
+    #if statement to determine which sentiment analysis metrics will be shown
+    if (sentiment_type == "text_sentiment.polarity") {
     
     #structures for map markers
     myPositive <- myGeo.clean %>% filter(text_sentiment.polarity == 'positive') %>% select(lat_lon_loc.longitude, lat_lon_loc.latitude, created_at, text)
@@ -440,13 +466,7 @@ server <- function(input,output,session) {
     
     myNeutral <- myGeo.clean %>% filter(text_sentiment.polarity == 'neutral') %>% select(lat_lon_loc.longitude, lat_lon_loc.latitude, created_at, text)
     
-    
-    leaflet() %>%
-      addTiles(
-        urlTemplate = "//{s}.tiles.mapbox.com/v3/jcheng.map-5ebohr46/{z}/{x}/{y}.png",
-        attribution = 'Maps by <a href="http://www.mapbox.com/">Mapbox</a>'
-      ) %>%
-      setView(lng = 150.0000, lat = -24.1500, zoom = 4) %>%
+    theMap %>%
       addAwesomeMarkers(
         lng = ~lat_lon_loc.longitude,
         lat = ~lat_lon_loc.latitude,
@@ -465,78 +485,35 @@ server <- function(input,output,session) {
         icon = icon.positive,
         data = myPositive,
         label = paste('POSITIVE tweet from', myPositive$created_at,". TWEET: ", myPositive$text)) 
-    # clusterOptions = markerClusterOptions())
-    
-  })
-  
-  
-  
-  # update map when 'Subjectivity' is selected
-  observeEvent(input$textual_type, {
-    
-    sentiment_type <- input$textual_type
-    
-    if (sentiment_type == "text_sentiment.subjectivity") {
+    } else {
       
       mySubjective <- myGeo.clean %>% filter(text_sentiment.subjectivity == 'subjective') %>% select(lat_lon_loc.longitude, lat_lon_loc.latitude, created_at, text)
       
       myObjective <- myGeo.clean %>% filter(text_sentiment.subjectivity == 'objective') %>% select(lat_lon_loc.longitude, lat_lon_loc.latitude, created_at, text)
       
-      
-      leafletProxy(mapId = "myMap") %>%
-        clearMarkers() %>%
-        addAwesomeMarkers(
-          lng = ~lat_lon_loc.longitude,
-          lat = ~lat_lon_loc.latitude,
-          icon = icon.subjective,
-          data = mySubjective,
-          label = paste('SUBJECTIVE tweet from', mySubjective$created_at,". TWEET: ", mySubjective$text)) %>%
+      theMap %>%
         addAwesomeMarkers(
           lng = ~lat_lon_loc.longitude,
           lat = ~lat_lon_loc.latitude,
           icon = icon.objective,
           data = myObjective,
-          label = paste('OBJECTIVE tweet from', myObjective$created_at,". TWEET: ", myObjective$text)) 
-      
-    } else {
-      
-      myPositive <- myGeo.clean %>% filter(text_sentiment.polarity == 'positive') %>% select(lat_lon_loc.longitude, lat_lon_loc.latitude, created_at, text)
-      
-      myNegative <- myGeo.clean %>% filter(text_sentiment.polarity == 'negative') %>% select(lat_lon_loc.longitude, lat_lon_loc.latitude, created_at, text)
-      
-      myNeutral <- myGeo.clean %>% filter(text_sentiment.polarity == 'neutral') %>% select(lat_lon_loc.longitude, lat_lon_loc.latitude, created_at, text)
-      
-      leafletProxy(mapId = "myMap") %>%
-        clearMarkers() %>%
+          label = paste('OBJECTIVE tweet from', myObjective$created_at,". TWEET: ", myObjective$text)) %>%
         addAwesomeMarkers(
           lng = ~lat_lon_loc.longitude,
           lat = ~lat_lon_loc.latitude,
-          icon = icon.negative,
-          data = myNegative,
-          label = paste('NEGATIVE tweet from', myNegative$created_at,". TWEET: ", myNegative$text)) %>%
-        addAwesomeMarkers(
-          lng = ~lat_lon_loc.longitude,
-          lat = ~lat_lon_loc.latitude,
-          icon = icon.neutral,
-          data = myNeutral,
-          label = paste('NEUTRAL tweet from', myNeutral$created_at,". TWEET: ", myNeutral$text)) %>%
-        addAwesomeMarkers(
-          lng = ~lat_lon_loc.longitude,
-          lat = ~lat_lon_loc.latitude,
-          icon = icon.positive,
-          data = myPositive,
-          label = paste('POSITIVE tweet from', myPositive$created_at,". TWEET: ", myPositive$text)) 
-      
+          icon = icon.subjective,
+          data = mySubjective,
+          label = paste('SUBJECTIVE tweet from', mySubjective$created_at,". TWEET: ", mySubjective$text))
     }
-    
     
   })
   
-  
+
+  #count of db objects
   output$numberRecords <- renderValueBox({
     
-    valueBox(mongo.count(mongo, "twitter01.tweets_census"),
-             "Total Census 2016 Tweets harvested to date", 
+    valueBox(mongo.count(mongo, "twitter01.tweets_census_prod"),
+             "Total Census 2016 Tweets harvested", 
              icon = icon("arrow-up"),
              color = "orange"
     )
