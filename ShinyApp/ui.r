@@ -1,9 +1,12 @@
 #Richard Shanahan  
 #https://github.com/rjshanahan  
 #rjshanahan@gmail.com
-#11 July 2016
+#10 July 2016
 
-## load packages
+
+###### ABS Census 2016 Twitter Monitoring
+
+# load required packages
 library(shinydashboard)
 library(shiny)
 library(data.table)
@@ -18,8 +21,9 @@ library(RColorBrewer)
 library(stringi)
 library(tm)
 library(lda)
-#library('bhaskarvk/leaflet') 
+#install_github('bhaskarvk/leaflet') 
 library(leaflet)
+
 
 #set theme for graphics
 theme = theme_set(theme_minimal())
@@ -27,523 +31,179 @@ theme = theme_update(legend.position="top",
                      axis.text.x = element_text(angle = 45, hjust = 1, vjust =1.25))
 
 
-#icons
-icon.positive <- makeAwesomeIcon(icon= 'plus-sign', markerColor = 'green', iconColor = 'white')
-icon.neutral <- makeAwesomeIcon(icon = 'minus-sign', markerColor = 'blue', iconColor = 'white')
-icon.negative <- makeAwesomeIcon(icon = 'remove-sign', markerColor = 'red', iconColor = 'white')
+# Choices for drop-downs
+vars <- c(
+  "Polarity" = "text_sentiment.polarity",
+  "Subjectivity" = "text_sentiment.subjectivity"
+)
 
-icon.subjective <- makeAwesomeIcon(icon= 'exclamation-sign', markerColor = 'orange', iconColor = 'white')
-icon.objective <- makeAwesomeIcon(icon = 'info-sign', markerColor = 'blue', iconColor = 'white')
+vars1 <- c(
+  "Polarity" = "text_sentiment.polarity",
+  "Subjectivity" = "text_sentiment.subjectivity"
+)
 
+vars2 <- c(
+  "Polarity" = "text_sentiment.polarity",
+  "Subjectivity" = "text_sentiment.subjectivity"
+)
 
-
-################# 1. MONGODB CONNECTION #################
-
-#connection object
-mongo <- mongo.create(host="mongotwitter-0.reukil.7293.mongodbdns.com:27000", 
-                      db="twitter01")
-
-
-################# 2. DATA SOURCES #################
-
-################# 2.1 OBJECT FOR TOPIC MODELLING ################# 
-#load in pre-processed text from MongoDB
-
-myText <- mongo.find.all(mongo, "twitter01.tweets_census",
-                         query='{"$and": [
-{"text_clean":{"$exists" :1},
-                         "text_clean":{"$ne" :1},
-                         "text_clean":{"$ne" :"null"}} 
-                         ]}' ,
-                         fields='{"text_clean":1,
-                         "created_at":1,
-                         "_id":0}',
-                         data.frame=TRUE)
-
-#additional tidy up
-myText$text_clean <- gsub("^rt ", "", myText$text_clean)
-myText$text_clean <- gsub(" amp ", "", myText$text_clean)
-myText$text_clean <- gsub("https", "", myText$text_clean)
-myText$text_clean <- gsub("  rt", "", myText$text_clean)
-
-#remove rows with empty strings
-myText <- myText %>% filter(nchar(text_clean) > 4)
-
-#change date format of CREATED_AT Twitter field
-myText$created_at <- as.POSIXct(myText$created_at, format = "%a %b %d %H:%M:%S +0000 %Y")
+selections_Pop <- c('retweets',
+                    'favorites')
 
 
-################# 2.1 OBJECT FOR SENTIMENT TIMESERIES ################# 
-
-#load in pre-processed text from MongoDB
-mySentiment <- mongo.find.all(mongo, "twitter01.tweets_census",
-                              query='{
-                              "text_sentiment":{"$exists" :1},
-                              "favorites":{"$exists" :1},
-                              "retweets":{"$exists" :1},
-                              "user":{"$exists" :1},
-                              "user_follower":{"$exists" :1},
-                              "created_at":{"$exists" :1},
-                              "text_sentiment": {"$ne":"null"},
-                              "text_sentiment": {"$ne": 1}}',
-                              fields='{
-                              "text_sentiment.polarity":1,
-                              "text_sentiment.subjectivity":1,
-                              "favorites":1,
-                              "retweets":1,
-                              "user":1,
-                              "user_follower":1,
-                              "created_at":1,
-                              "_id":0}',
-                              data.frame=TRUE)
+############################################################
+## shiny user interface function
+############################################################
 
 
-#change date format of CREATED_AT Twitter field
-mySentiment$created_at <- as.POSIXct(mySentiment$created_at, format = "%a %b %d %H:%M:%S +0000 %Y")
-mySentiment$day <- as.Date(mySentiment$created_at)
+shinyUI(navbarPage("Census 2016 Twitter Text Analytics", 
+                   #id="nav", 
+                   inverse=TRUE,
+                   
+                   # MAPPING TAB                   
+                   tabPanel("Geocoded Tweets", icon = icon("map-marker"),
+                            
+                            titlePanel('Where are all the tweets coming from?', windowTitle='Tweet Location'),
+                            
+                            div(class="outer",
+                                
+                                tags$head(
+                                  # Include our custom CSS
+                                  includeCSS("styles.css")
+                                ),
+                                
+                                leafletOutput("myMap", width="100%", height="100%"),
+                                
+                                
+                                absolutePanel(id = "controls", class = "panel panel-default", fixed = TRUE,
+                                              draggable = TRUE, top = 120, left = "auto", right = 20, bottom = "auto",
+                                              width = 450, height = 530,
+                                              
+                                              h2("Census 2016 Tweet Explorer"),
+                                              h4("In your way? Move me around then!"),
+                                              br(),
+                                              
+                                              selectInput(inputId="textual_type", "Tweet Sentiment Analysis Type", vars, selected = "text_sentiment.polarity"),
+                                              plotOutput("time_series2", height = 300),
+                                              h5("Want to know more? Please ", a("visit my GitHub repository", href="https://github.com/rjshanahan/Census_2016_Twitter_Insights", target="_blank"))
+                                )
+                                
+                            ),
+                            
+                            tags$div(id="cite",
+                                     'Data compiled "unofficially" by Richard Shanahan for the ', tags$em('Australian Bureau of Statistics - Census 2016'
+                                     ))
+                            
+                   ),
+                   
+                   
+                   # TOPIC MODELLING TAB
+                   tabPanel("Explore Tweet Topics", icon = icon("flask"),
+                            
+                            titlePanel('What are people tweeting about and when?', windowTitle='Tweet Topics'),
+                            h4("Topic Models are statisitcal contraptions that find underlying 'topics' from documents, or tweets in this case...", a("read more here.", href="https://en.wikipedia.org/wiki/Topic_model", target="_blank")),
+                            h5("Use the controls to change the number of 'topics' and how many 'words' you want for each - these describe the main 'topics' extracted. You can also 'hide' layers by clicking on the legend"),
+                            br(),
+                            br(),
+                            
+                            div(class="outer1",
+                                
+                                tags$head(
+                                  # Include our custom CSS
+                                  includeCSS("styles.css")
+                                ),
+                                
+                                plotlyOutput("topic_time2", width="100%", height="100%"),
+                                
+                                DT::dataTableOutput("topic_list2"),
+                                
+                                
+                                absolutePanel(id = "controls", class = "panel panel-default", fixed = TRUE,
+                                              draggable = TRUE, top = "auto", left = "auto", right = 20, bottom = 60,
+                                              width = 450, height = 300,
+                                              
+                                              h3("Census 2016 Tweet Topic Modelling"),
+                                              h4("In your way? Move me around then!"),
+                                              br(),
+                                              
+                                              sliderInput(inputId="n_topics2","How many topics do you want?",value=5,min=1,max=8,step=1),
+                                              sliderInput(inputId="topic_topN2","How many words per topic?",value=5,min=3,max=15,step=1)
+                                              
+                                )
+                                
+                            )
+                            
+                            
+                   ),
+                   
+                   
+                   
+                   
+                   # GENERIC STUFF TAB
+                   tabPanel("Other Twitter-y Stuff", icon = icon("twitter-square"),
+                            
+                            fluidPage(
+                              titlePanel('Twitter Analysis', windowTitle='Tweet Analysis'),
+                              h4("A few other interesting morsels..."),
+                              
+                              fluidRow(
+                                sidebarPanel(
+                                  
+                                  conditionalPanel(condition="input.conditionedPanels==1",
+                                                   h4("time series bar plot shaded by text sentiment"),
+                                                   br(),
+                                                   radioButtons(inputId="myFill2", "Colour by text sentiment 'polarity' or 'subjectivity'", vars, selected = "text_sentiment.polarity", inline = T),
+                                                   br()),
 
+                                  conditionalPanel(condition="input.conditionedPanels==2",
+                                                   h4("time series line plot shaded by text sentiment"),
+                                                   br(),
+                                                   radioButtons(inputId="myFill3", "Colour by text sentiment 'polarity' or 'subjectivity'", vars1, selected = "text_sentiment.polarity", inline = T),
+                                                   br()),
+                                  
+                                  conditionalPanel(condition="input.conditionedPanels==3",
+                                                   h4("top users - shaded by text sentiment"),
+                                                   br(),
+                                                   radioButtons(inputId="myFill4", "Colour by text sentiment 'polarity' or 'subjectivity'", vars2, selected = "text_sentiment.polarity", inline = T),
+                                                   radioButtons(inputId="myPop", "Pick your popularity metric", selections_Pop, selected = "retweets", inline = T),
+                                                   sliderInput(inputId="myHigh", "How many Top User records to display", value=20,min=15,max=50,step=1),
+                                                   br()),
+                                  
+                                  conditionalPanel(condition="input.conditionedPanels==4",
+                                                   h4("top words tweeted - select a word frequency"),
+                                                   br(),
+                                                   sliderInput(inputId="topN2","Top Words - minimum freq?",value=50,min=35,max=100,step=1),
+                                                   br()),
+                                  
+                                  conditionalPanel(condition="input.conditionedPanels==5",
+                                                   h4("word cloud... everybody's favourite - select a word frequency"),
+                                                   br(),
+                                                   sliderInput(inputId="topN3","Top Words - minimum freq?",value=50,min=35,max=100,step=1)),
+                                  
+                                  conditionalPanel(condition="input.conditionedPanels==6",
+                                                   h4("how many Census 2016 tweets have been harvested from Twitter?"),
+                                                   br()),
+                                  width=3),
+                                
+                                column(width=9,
+                                       tabsetPanel(type="tabs",
+                                                   tabPanel("time series bar", icon = icon("bar-chart"), plotlyOutput("time_series3"), value=1),
+                                                   tabPanel("time series line", icon = icon("line-chart"), plotlyOutput("time_series_line"), value=2),
+                                                   tabPanel("top users", icon = icon("user"), plotlyOutput("top_users"), value=3),
+                                                   tabPanel("top words", icon = icon("font"), plotlyOutput("top_words2"), value=4),
+                                                   tabPanel("word cloud", icon = icon("cloud"), plotOutput("word_cloud2"), value=5),
+                                                   tabPanel("how many tweets?", icon = icon("question-circle"), valueBoxOutput("numberRecords"), value=6),
+                                                   id = "conditionedPanels"
+                                                   
+                                                   
+                                       )
+                                )
+                                
+                              )
+                              
+                            )
+                            
+                   )
+)
 
-
-
-################# 2.2 OBJECT FOR SENTIMENT GEOCODED ################# 
-
-#load in pre-processed text from MongoDB
-myGeo <- mongo.find.all(mongo, "twitter01.tweets_census",
-                        query='{
-                        "lat_lon_loc": {"$exists" :1},
-                        "lat_lon_loc": {"$ne":"null"},
-                        "lat_lon_loc": {"$ne": 1},
-                        "text_sentiment": {"$exists" :1},
-                        "text_sentiment": {"$ne":"null"},
-                        "text_sentiment": {"$ne": 1}}' ,
-                        fields='{
-                        "text_sentiment.polarity":1,
-                        "text_sentiment.subjectivity":1,
-                        "lat_lon_loc.latitude":1,
-                        "lat_lon_loc.longitude":1,
-                        "created_at":1,
-                        "text":1,
-                        "_id":0}',
-                        data.frame=TRUE)
-
-myGeo.clean <- myGeo %>%
-  filter(lat_lon_loc.latitude != "", lat_lon_loc.longitude  != "")
-
-myGeo.clean$lat_lon_loc.longitude <- as.numeric(myGeo.clean$lat_lon_loc.longitude)
-myGeo.clean$lat_lon_loc.latitude <- as.numeric(myGeo.clean$lat_lon_loc.latitude)
-
-
-################# 2. TOPIC MODEL #################
-
-
-server <- function(input, output) {
-  
-  
-  myTDM <- reactive({
-    
-    # build a corpus, and specify the source to be character vectors
-    myCorpus <- Corpus(VectorSource(myText$text_clean))
-    
-    # stem words
-    myCorpus <- tm_map(myCorpus, PlainTextDocument)
-    #myCorpus <- tm_map(myCorpus, stemDocument, lazy = TRUE)
-    myCorpus <- tm_map(myCorpus,
-           content_transformer(function(x) iconv(x, to='UTF-8', sub='byte')),
-           mc.cores=1
-    )
-    
-    tdm <- TermDocumentMatrix(myCorpus, control = list(wordLengths = c(1, Inf)))
-    
-  })
-  
-  
-  myLDA <- reactive({
-    
-    tdm <- myTDM()
-    dtm <- as.DocumentTermMatrix(tdm)
-    
-    # remove empty rows
-    rowTotals <- apply(dtm , 1, sum)            #Find the sum of words in each Document
-    dtm.new   <- dtm[rowTotals> 0, ]            #remove all docs without words
-    
-    # number of topics
-    lda <- LDA(dtm.new, k = input$n_topics2)
-    
-  })
-  
-  
-  myTerm <- reactive({
-    
-    tdm <- myTDM()
-    lda <- myLDA()
-    
-    # number of topics
-    lda <- lda
-    term <- terms(lda, input$topic_topN2) # first n words in Topic
-    
-  })
-  
-  
-  myTerm_vis <- reactive({
-    
-    term <- myTerm()
-    
-    ###Visualisations
-    term_vis <- apply(term, MARGIN = 2, paste, collapse = ", ")
-    
-  })
-  
-  
-  myTopic <- reactive({
-    
-    lda <- myLDA()
-    
-    # first topic identified for every document (tweet)
-    require(data.table) #for IDate
-    
-    topic <- topics(lda, 1)
-    
-  })
-  
-  
-  # reactive object for sentiment time series
-  mySentiment_day <- reactive({
-    mySentiment %>%
-      group_by_(quote(day), input$textual_type) %>%
-      summarise_(total = paste0('n()')) 
-  })
-  
-  # reactive object for sentiment time series
-  mySentiment_day_ts <- reactive({
-    mySentiment %>%
-      group_by_(quote(day), input$myFill2) %>%
-      summarise_(total = paste0('n()')) 
-  })
-  
-  # reactive object builder for map pin colouring
-  mySentiment_Subjective <- reactive({
-
-    mySubjective <- myGeo.clean %>% filter(text_sentiment.subjectivity == 'subjective') %>% select(lat_lon_loc.longitude, lat_lon_loc.latitude, created_at, text)
-    
-    myObjective <- myGeo.clean %>% filter(text_sentiment.subjectivity == 'objective') %>% select(lat_lon_loc.longitude, lat_lon_loc.latitude, created_at, text)
-    
-    
-  })
-  
-  
-  # reactive object for sentiment time series
-  mySentiment_pop <- reactive({
-    mySentiment %>%
-      filter(!is.na(user) & user != "") %>%
-      group_by_(quote(user), input$myPop, input$myFill2) %>%
-      mutate(tweets = n()) %>%
-      group_by_(quote(user), input$myPop, input$myFill2, quote(tweets)) %>%
-      summarise_(paste0('sum(',input$myPop,')') ) %>%
-      ungroup() %>%
-      arrange_(paste0('desc(', quote(tweets),')'))
-    
-  })
-  
-  
-  
-  # top words by minimum frequency
-  output$top_words2 <- renderPlotly({
-    
-    tdm <- myTDM()
-    
-    term.freq <- rowSums(as.matrix(tdm))
-    term.freq <- subset(term.freq, term.freq >= input$topN2)
-    myLDA.df <- data.frame(term = names(term.freq), freq = term.freq)
-    
-    
-    #plot term frequencies
-    p <- ggplot(myLDA.df, 
-                aes_string(x=paste0('reorder(term, freq)'), 
-                           y=quote(freq),
-                           fill=quote(freq))) + 
-      geom_bar(stat = "identity", linetype = 'blank') + 
-      xlab("Terms") + 
-      ylab("Count") +
-      coord_flip() +
-      theme_minimal(base_size = 8) +
-      ggtitle(paste0("Showing top words tweeted at least ",input$topN2, " times"))
-    
-    p <- ggplotly(p,
-                  tooltip = c("x","fill"))
-    
-    print(p)
-    
-  })
-  
-  
-  # word cloud by minimum frequency  
-  output$word_cloud2 <- renderPlot({
-    
-    tdm <- myTDM()
-    
-    m <- as.matrix(tdm)
-    # calculate the frequency of words and sort it by frequency
-    word.freq <- sort(rowSums(m), decreasing = T)
-    
-    pal <- brewer.pal(9,"BuGn")
-    pal <- pal[-(1:4)]
-    
-    p <- wordcloud(words = names(word.freq), 
-                   freq = word.freq, 
-                   min.freq = input$topN3,
-                   random.order = F,
-                   colors=pal)
-    
-    print(p)
-    
-  })
-  
-  
-  # topic model time series plot  
-  output$topic_time2 <- renderPlotly({
-    
-    term <- myTerm_vis() 
-    topic <- myTopic()
-    
-    topics <- data.frame(date=as.IDate(myText$created_at), topic)
-    
-    title_main <- paste0("Showing top ",input$topic_topN2, " words for ", input$n_topics2, " topics")
-    title_sub <- paste0("Topic Modelling using Latent Dirichlet Allocation")
-    
-    p <- ggplot(topics,
-                aes_string(
-                  x=quote(date),
-                  y=quote(..count..),
-                  fill=quote(term[topic]),
-                  position_stack())) +
-      geom_density(linetype = 0,
-                   alpha = 0.75) +
-      ggtitle(title_main)
-    #ggtitle(bquote(atop(.(title_main),
-    #                    atop(bold(.(title_sub)))))) 
-    
-    p <- ggplotly(p,
-                  tooltip = c("x","fill"))
-    
-    print(p)
-    
-  })
-  
-  
-  
-  # topic words list for display  
-  output$topic_list2 <- renderDataTable({
-    
-    term <- myTerm_vis()  
-    topic <- myTopic()
-    
-    topic_words <- data.frame(unique(term[topic]))
-    
-    names(topic_words)[1] <- paste0("TOPIC MODEL TOP ", input$topic_topN2, " words")
-    
-    topic_words
-    
-  })
-  
-  
-  
-  # time series plot - mapping tab
-  output$time_series2 <- renderPlot({
-    
-    mySent_day <- mySentiment_day()
-    
-    #timeseries
-    p <- 
-      ggplot(data = mySent_day, 
-             #ordered x axis by popularity count.
-             aes_string(x=quote(day),
-                        y=quote(total))) + 
-      geom_bar(aes_string(fill=input$textual_type),
-               stat='identity') +
-      coord_flip() 
-    
-    print(p)
-    
-  })
-  
-  
-  
-  # time series plot - general tab
-  output$time_series3 <- renderPlotly({
-    
-    mySent_day <- mySentiment_day_ts()
-    
-    #timeseries
-    p <- ggplot(data = mySent_day, 
-                #ordered x axis by popularity count.
-                aes_string(x=quote(day),
-                           y=quote(total))) + 
-      geom_bar(aes_string(fill=input$myFill2),
-               stat='identity') +
-      ggtitle(paste0("Time series for Census 2016 Tweets by ", input$myFill2))
-    
-    p <- ggplotly(p,
-                  tooltip = c("x", "y", "fill"))
-    
-    print(p)
-    
-  })
-  
-  
-  
-  # time series plot - general tab
-  output$time_series_line <- renderPlotly({
-    
-    mySent_day <- mySentiment_day_ts()
-    
-    #timeseries
-    p <- ggplot(data = mySent_day, 
-                #ordered x axis by popularity count.
-                aes_string(x=quote(day))) + 
-      geom_line(aes_string(y=quote(total),
-                           colour=input$myFill2)) +
-      ggtitle(paste0("Time series for Census 2016 Tweets by ", input$myFill2))
-    
-    p <- ggplotly(p,
-                  tooltip = c("x", "colour"))
-    
-    print(p)
-    
-  })
-  
-  
-  # top users chart
-  output$top_users <- renderPlotly({
-    
-    myDF <- mySentiment_pop()
-    headmyDF <- arrange(head(myDF, n=input$myHigh))
-    
-    p <- ggplot(data = headmyDF, 
-                #ordered x axis by popularity count.
-                aes_string(x=paste0('reorder(user, desc(tweets))'),
-                           y=quote(tweets))) + 
-      geom_bar(aes_string(fill=input$myFill2),
-               stat='identity') +
-      ggtitle(paste0("Top ", input$myHigh, " users by ", input$myPop, " and ", input$myFill2)) +
-      xlab("user name")
-    
-    p <- ggplotly(p,
-                  tooltip = c("y","fill"))
-    
-    print(p)
-    
-  })
-  
-  
-  # Create the map
-  output$myMap <- renderLeaflet({
-    
-    #structures for map markers
-    myPositive <- myGeo.clean %>% filter(text_sentiment.polarity == 'positive') %>% select(lat_lon_loc.longitude, lat_lon_loc.latitude, created_at, text)
-    
-    myNegative <- myGeo.clean %>% filter(text_sentiment.polarity == 'negative') %>% select(lat_lon_loc.longitude, lat_lon_loc.latitude, created_at, text)
-    
-    myNeutral <- myGeo.clean %>% filter(text_sentiment.polarity == 'neutral') %>% select(lat_lon_loc.longitude, lat_lon_loc.latitude, created_at, text)
-    
-    
-    leaflet() %>%
-      addTiles(
-        urlTemplate = "//{s}.tiles.mapbox.com/v3/jcheng.map-5ebohr46/{z}/{x}/{y}.png",
-        attribution = 'Maps by <a href="http://www.mapbox.com/">Mapbox</a>'
-      ) %>%
-      setView(lng = 150.0000, lat = -24.1500, zoom = 4) %>%
-      addAwesomeMarkers(
-        lng = ~lat_lon_loc.longitude,
-        lat = ~lat_lon_loc.latitude,
-        icon = icon.negative,
-        data = myNegative,
-        label = paste('NEGATIVE tweet from', myNegative$created_at,". TWEET: ", myNegative$text)) %>%
-      addAwesomeMarkers(
-        lng = ~lat_lon_loc.longitude,
-        lat = ~lat_lon_loc.latitude,
-        icon = icon.neutral,
-        data = myNeutral,
-        label = paste('NEUTRAL tweet from', myNeutral$created_at,". TWEET: ", myNeutral$text)) %>%
-      addAwesomeMarkers(
-        lng = ~lat_lon_loc.longitude,
-        lat = ~lat_lon_loc.latitude,
-        icon = icon.positive,
-        data = myPositive,
-        label = paste('POSITIVE tweet from', myPositive$created_at,". TWEET: ", myPositive$text)) 
-    # clusterOptions = markerClusterOptions())
-    
-  })
-  
-  
-  
-  # update map when 'Subjectivity' is selected
-  observeEvent(input$textual_type, {
-    
-    sentiment_type <- input$textual_type
-    
-    if (sentiment_type == "text_sentiment.subjectivity") {
-      
-
-      
-      leafletProxy(mapId = "myMap") %>%
-        clearMarkers() %>%
-        addAwesomeMarkers(
-          lng = ~lat_lon_loc.longitude,
-          lat = ~lat_lon_loc.latitude,
-          icon = icon.subjective,
-          data = mySubjective,
-          label = paste('SUBJECTIVE tweet from', mySubjective$created_at,". TWEET: ", mySubjective$text)) %>%
-        addAwesomeMarkers(
-          lng = ~lat_lon_loc.longitude,
-          lat = ~lat_lon_loc.latitude,
-          icon = icon.objective,
-          data = myObjective,
-          label = paste('OBJECTIVE tweet from', myObjective$created_at,". TWEET: ", myObjective$text)) 
-      
-    } else {
-      
-      myPositive <- myGeo.clean %>% filter(text_sentiment.polarity == 'positive') %>% select(lat_lon_loc.longitude, lat_lon_loc.latitude, created_at, text)
-      
-      myNegative <- myGeo.clean %>% filter(text_sentiment.polarity == 'negative') %>% select(lat_lon_loc.longitude, lat_lon_loc.latitude, created_at, text)
-      
-      myNeutral <- myGeo.clean %>% filter(text_sentiment.polarity == 'neutral') %>% select(lat_lon_loc.longitude, lat_lon_loc.latitude, created_at, text)
-      
-      leafletProxy(mapId = "myMap") %>%
-        clearMarkers() %>%
-        addAwesomeMarkers(
-          lng = ~lat_lon_loc.longitude,
-          lat = ~lat_lon_loc.latitude,
-          icon = icon.negative,
-          data = myNegative,
-          label = paste('NEGATIVE tweet from', myNegative$created_at,". TWEET: ", myNegative$text)) %>%
-        addAwesomeMarkers(
-          lng = ~lat_lon_loc.longitude,
-          lat = ~lat_lon_loc.latitude,
-          icon = icon.neutral,
-          data = myNeutral,
-          label = paste('NEUTRAL tweet from', myNeutral$created_at,". TWEET: ", myNeutral$text)) %>%
-        addAwesomeMarkers(
-          lng = ~lat_lon_loc.longitude,
-          lat = ~lat_lon_loc.latitude,
-          icon = icon.positive,
-          data = myPositive,
-          label = paste('POSITIVE tweet from', myPositive$created_at,". TWEET: ", myPositive$text)) 
-      
-    }
-    
-    
-  })
-  
-  
-  output$numberRecords <- renderValueBox({
-    
-    valueBox(mongo.count(mongo, "twitter01.tweets_census"),
-             "Total Census 2016 Tweets harvested to date", 
-             icon = icon("arrow-up"),
-             color = "orange"
-    )
-  })
-  
-  
-  
-}
+)
