@@ -19,7 +19,7 @@ Analysis and the interactive webapp are bolted together as follows:
 - the MongoDB instance and Python-hosting server are hosted on <a href="https://aws.amazon.com/ec2/" target="_blank">Amazon Web Services EC2</a>
 - the Python Twitter Streaming API script is managed on the AWS EC2 instance by a ```cronjob```
   
-The visualisation consists of three main tabs:
+####The visualisation consists of three main tabs:
   
 
 |ShinyApp Tab| Content|
@@ -28,6 +28,18 @@ The visualisation consists of three main tabs:
 |```Topic Model``` 							| Topic Model showing topic development over time	|
 |```Other Twitter-y Stuff```					| Various visualisation inc. wordcloud, top words, top users	|
   
+ 
+####Definitions for  <a href="http://rjshanahan.shinyapps.io/Census_Twitter_Shiny" target="_blank">Interactive Census Tweet Explorer</a> text analytics components:
+
+|Attribute										| Description                  | Visualisation Use  |
+|:---------------------------------------------------|:-------|:---------------------|
+|polarity   							| Natural language processing was used to determine the overall *polarity* of the tweet - was it *positive, negative or neutral*. Polarity can be considered an indicator as to the emotional state being expressed in the tweet, such as angry, happy or indifferent	| ```colouring```	  |
+|subjectivity   							| Natural language processing was used to determine the overall *subjectivity* of the tweet - was it *subjective or objective*. This can be a difficult challenge as tweets may contain subjetive and objective terms. It can be considered a measure of a statement of fact versus opinion| ```colouring```	  |
+Note: sentiment and subjectivity analysis was undertaken using the <a href="http://aylien.com/" target="_blank">Python API from Aylien </a>
+
+![Twitter](https://pbs.twimg.com/profile_images/622211370247827456/VD0SebK3_400x400.png)
+
+![MongoDB](https://webassets.mongodb.com/_com_assets/cms/MongoDB-Logo-5c3a7405a85675366beb3a5ec4c032348c390b3f142f5e6dddf1d78e2df5cb5c.png)
   
-  
-![Twitter](https://g.twimg.com/Twitter_logo_blue.png)
+![Aylien](http://aylien.com/images/graph.png)
+
